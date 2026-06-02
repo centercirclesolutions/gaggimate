@@ -91,10 +91,11 @@ void WebUIPlugin::loop() {
     }
     const long now = millis();
     if ((lastUpdateCheck == 0 || now > lastUpdateCheck + UPDATE_CHECK_INTERVAL)) {
-        // Skip OTA check in AP mode: no route to GitHub, and mbedtls handshake
-        // allocates ~30 KB internal heap that the pioarduino 55.x prebuilt
-        // can't spare — spike triggers BLE_INIT malloc failures.
-        if (!apMode) {
+        // Skip when a TLS handshake can't run safely: apMode has no GitHub route (and the
+        // ~30 KB mbedtls spike risks BLE_INIT malloc failures), and isActive() means a
+        // brew/grind/steam is the worst time for that spike. lastUpdateCheck still advances
+        // so we wait the full interval rather than retrying every loop.
+        if (!apMode && !controller->isActive()) {
             ota->checkForUpdates();
             pluginManager->trigger("ota:update:status", "value", ota->isUpdateAvailable());
             updateOTAStatus(ota->getCurrentVersion());
@@ -902,9 +903,25 @@ void WebUIPlugin::updateOTAStatus(const String &version) {
 }
 
 void WebUIPlugin::updateOTAProgress(uint8_t phase, int progress) {
-    if (ws.getClients().empty()) {
+    // The GitHubOTA callback fires per-TCP-chunk (thousands of events for a
+    // multi-MB image); unthrottled, that overruns the WS queue and starves
+    // AsyncTCP, which is what leaves the bar frozen at a sub-100% value. Emit
+    // only on a phase change, at 100%, or a >=1% change at least 500ms apart.
+    if (phase != lastOtaPhase) {
+        lastOtaPhase = phase;
+        lastEmittedOtaProgress = -1; // first event of a new phase always emits
+    }
+    const unsigned long now = millis();
+    const bool firstEmit = lastEmittedOtaProgress < 0;
+    const bool progressDelta = (progress - lastEmittedOtaProgress) >= kOtaProgressMinDeltaPct;
+    const bool intervalElapsed = (now - lastOtaProgressEmitMs) >= kOtaProgressMinIntervalMs;
+    const bool atCompletion = progress == 100;
+    if (!firstEmit && !atCompletion && !(progressDelta && intervalElapsed)) {
         return;
     }
+    lastEmittedOtaProgress = progress;
+    lastOtaProgressEmitMs = now;
+
     JsonDocument doc(&psramAllocator);
     doc["tp"] = "evt:ota-progress";
     doc["phase"] = phase;

@@ -11,7 +11,11 @@
 #include <display/core/Plugin.h>
 #include <display/util/PsramAllocator.h>
 
-constexpr size_t UPDATE_CHECK_INTERVAL = 5 * 60 * 1000;
+// Auto-OTA check cadence. 6 h is about 4 checks/day — enough to surface
+// releases without the heap churn of the old 5-min default. Each check runs a
+// TLS handshake (~30 KB internal heap on the pioarduino 55.x prebuilt mbedTLS),
+// a large source of fragmentation on this device.
+constexpr size_t UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 constexpr size_t CLEANUP_PERIOD = 5 * 1000;
 constexpr size_t STATUS_PERIOD = 500;
 constexpr size_t DNS_PERIOD = 50;
@@ -82,6 +86,14 @@ class WebUIPlugin : public Plugin {
     bool serverRunning = false;
     String updateComponent = "";
     float currentBluetoothWeight = 0.0f;
+
+    // OTA progress rate-limiting (see updateOTAProgress for the why).
+    static constexpr int kOtaProgressMinDeltaPct = 1;
+    static constexpr unsigned long kOtaProgressMinIntervalMs = 500;
+    uint8_t lastOtaPhase = 0;
+    int lastEmittedOtaProgress = -1;
+    unsigned long lastOtaProgressEmitMs = 0;
+
     // Reused for every 500ms status broadcast. Allocating a fresh JsonDocument
     // each tick was a major contributor to internal-heap fragmentation
     // (device reports 33%+ fragmentation, causing AsyncTCP buffer allocs to
