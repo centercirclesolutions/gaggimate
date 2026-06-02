@@ -9,6 +9,10 @@ void Settings::load() {
     if (taskHandle != nullptr) {
         return; // already loaded — guard against re-entry spawning a second save task
     }
+    // Created here, before either doSave caller (loopTask or AsyncTCP save(true)) can run.
+    if (saveMutex == nullptr) {
+        saveMutex = xSemaphoreCreateMutex();
+    }
     preferences.begin(PREFERENCES_KEY, true);
     startupMode = preferences.getInt("sm", MODE_STANDBY);
     targetSteamTemp = preferences.getInt("ts", 145);
@@ -448,6 +452,12 @@ void Settings::doSave() {
     if (!dirty) {
         return;
     }
+    // The timeout is defensive against deadlock; a save that blocks longer than
+    // 5s means the system is already failing. Leave dirty set so the next tick retries.
+    if (saveMutex == nullptr || xSemaphoreTake(saveMutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        ESP_LOGW("Settings", "doSave: mutex unavailable, deferring");
+        return;
+    }
     dirty = false;
     ESP_LOGI("Settings", "Saving settings");
     preferences.begin(PREFERENCES_KEY, false);
@@ -529,6 +539,7 @@ void Settings::doSave() {
     preferences.putString("btnb", implode(buttonBehavior, ","));
 
     preferences.end();
+    xSemaphoreGive(saveMutex);
 }
 
 [[noreturn]] void Settings::loopTask(void *arg) {
