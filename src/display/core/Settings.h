@@ -87,6 +87,11 @@ class Settings {
     bool isSmartGrindActive() const { return smartGrindActive; }
     int getSmartGrindMode() const { return smartGrindMode; }
     String getSmartGrindIp() const { return smartGrindIp; }
+    int getSmartGrindType() const { return smartGrindType; }
+    String getSmartGrindSwitchId() const { return smartGrindSwitchId; }
+    String getSmartGrindUrlOn() const { return smartGrindUrlOn; }
+    String getSmartGrindUrlOff() const { return smartGrindUrlOff; }
+    int getSmartGrindMethod() const { return smartGrindMethod; }
     bool isHomeAssistant() const { return homeAssistant; }
     String getHomeAssistantIP() const { return homeAssistantIP; }
     String getHomeAssistantUser() const { return homeAssistantUser; }
@@ -150,6 +155,11 @@ class Settings {
     void setSmartGrindActive(bool smart_grind_active);
     void setSmartGrindIp(String smart_grind_ip);
     void setSmartGrindMode(int smart_grind_mode);
+    void setSmartGrindType(int smart_grind_type);
+    void setSmartGrindSwitchId(String smart_grind_switch_id);
+    void setSmartGrindUrlOn(String smart_grind_url_on);
+    void setSmartGrindUrlOff(String smart_grind_url_off);
+    void setSmartGrindMethod(int smart_grind_method);
     void setHomeAssistant(bool homeAssistant);
     void setHomeAssistantUser(const String &homeAssistantUser);
     void setHomeAssistantPassword(const String &homeAssistantPassword);
@@ -220,6 +230,11 @@ class Settings {
     bool smartGrindToggle = false;
     int smartGrindMode = 0;
     String smartGrindIp = "";
+    int smartGrindType = 0;
+    String smartGrindSwitchId = "";
+    String smartGrindUrlOn = "";
+    String smartGrindUrlOff = "";
+    int smartGrindMethod = 0;
     bool homeAssistant = false;
     String homeAssistantUser = "";
     String homeAssistantPassword = "";

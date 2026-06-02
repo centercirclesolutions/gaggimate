@@ -211,23 +211,127 @@ export function PluginCard({
         {formData.smartGrindActive && (
           <div className='border-base-300 mt-4 space-y-4 border-t pt-4'>
             <p className='text-sm opacity-70'>
-              This feature controls a Tasmota Plug to turn off your grinder after the target has
-              been reached.
+              This feature controls a smart plug to turn your grinder off after the target has been
+              reached. Choose a preset for Tasmota or ESPHome, or pick Custom to point at any plug
+              with an HTTP API.
             </p>
             <div className='form-control'>
-              <label htmlFor='smartGrindIp' className='mb-2 block text-sm font-medium'>
-                Tasmota IP
+              <label htmlFor='smartGrindType' className='mb-2 block text-sm font-medium'>
+                Plug Type
               </label>
-              <input
-                id='smartGrindIp'
-                name='smartGrindIp'
-                type='text'
-                className='input input-bordered w-full'
-                placeholder='0'
-                value={formData.smartGrindIp}
-                onChange={onChange('smartGrindIp')}
-              />
+              <select
+                id='smartGrindType'
+                name='smartGrindType'
+                className='select select-bordered w-full'
+                onChange={onChange('smartGrindType')}
+              >
+                <option value='0' selected={(formData.smartGrindType ?? 0).toString() === '0'}>
+                  Tasmota
+                </option>
+                <option value='1' selected={(formData.smartGrindType ?? 0).toString() === '1'}>
+                  ESPHome
+                </option>
+                <option value='2' selected={(formData.smartGrindType ?? 0).toString() === '2'}>
+                  Custom (HTTP)
+                </option>
+              </select>
             </div>
+
+            {(formData.smartGrindType ?? 0).toString() !== '2' && (
+              <div className='form-control'>
+                <label htmlFor='smartGrindIp' className='mb-2 block text-sm font-medium'>
+                  Host or IP
+                </label>
+                <input
+                  id='smartGrindIp'
+                  name='smartGrindIp'
+                  type='text'
+                  className='input input-bordered w-full'
+                  placeholder='192.168.1.50 or plug.local'
+                  value={formData.smartGrindIp}
+                  onChange={onChange('smartGrindIp')}
+                />
+              </div>
+            )}
+
+            {(formData.smartGrindType ?? 0).toString() === '1' && (
+              <div className='form-control'>
+                <label htmlFor='smartGrindSwitchId' className='mb-2 block text-sm font-medium'>
+                  Switch object ID
+                </label>
+                <input
+                  id='smartGrindSwitchId'
+                  name='smartGrindSwitchId'
+                  type='text'
+                  className='input input-bordered w-full'
+                  placeholder='Defaults to first label of host (e.g. "sette" from sette.local)'
+                  value={formData.smartGrindSwitchId}
+                  onChange={onChange('smartGrindSwitchId')}
+                />
+                <p className='mt-1 text-xs opacity-70'>
+                  ESPHome exposes switches at <code>/switch/&lt;object_id&gt;/turn_on</code>. Leave
+                  blank to derive it from the host.
+                </p>
+              </div>
+            )}
+
+            {(formData.smartGrindType ?? 0).toString() === '2' && (
+              <>
+                <div className='form-control'>
+                  <label htmlFor='smartGrindMethod' className='mb-2 block text-sm font-medium'>
+                    HTTP Method
+                  </label>
+                  <select
+                    id='smartGrindMethod'
+                    name='smartGrindMethod'
+                    className='select select-bordered w-full'
+                    onChange={onChange('smartGrindMethod')}
+                  >
+                    <option
+                      value='0'
+                      selected={(formData.smartGrindMethod ?? 0).toString() === '0'}
+                    >
+                      GET
+                    </option>
+                    <option
+                      value='1'
+                      selected={(formData.smartGrindMethod ?? 0).toString() === '1'}
+                    >
+                      POST
+                    </option>
+                  </select>
+                </div>
+                <div className='form-control'>
+                  <label htmlFor='smartGrindUrlOn' className='mb-2 block text-sm font-medium'>
+                    URL to turn ON
+                  </label>
+                  <input
+                    id='smartGrindUrlOn'
+                    name='smartGrindUrlOn'
+                    type='text'
+                    className='input input-bordered w-full'
+                    placeholder='http://plug.local/relay/0?turn=on'
+                    value={formData.smartGrindUrlOn}
+                    onChange={onChange('smartGrindUrlOn')}
+                  />
+                </div>
+                <div className='form-control'>
+                  <label htmlFor='smartGrindUrlOff' className='mb-2 block text-sm font-medium'>
+                    URL to turn OFF
+                  </label>
+                  <input
+                    id='smartGrindUrlOff'
+                    name='smartGrindUrlOff'
+                    type='text'
+                    className='input input-bordered w-full'
+                    placeholder='http://plug.local/relay/0?turn=off'
+                    value={formData.smartGrindUrlOff}
+                    onChange={onChange('smartGrindUrlOff')}
+                  />
+                </div>
+              </>
+            )}
+
             <div className='form-control'>
               <label htmlFor='smartGrindMode' className='mb-2 block text-sm font-medium'>
                 Mode

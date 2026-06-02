@@ -556,6 +556,16 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
                 settings->setSmartGrindIp(request->arg("smartGrindIp"));
             if (request->hasArg("smartGrindMode"))
                 settings->setSmartGrindMode(request->arg("smartGrindMode").toInt());
+            if (request->hasArg("smartGrindType"))
+                settings->setSmartGrindType(request->arg("smartGrindType").toInt());
+            if (request->hasArg("smartGrindSwitchId"))
+                settings->setSmartGrindSwitchId(request->arg("smartGrindSwitchId"));
+            if (request->hasArg("smartGrindUrlOn"))
+                settings->setSmartGrindUrlOn(request->arg("smartGrindUrlOn"));
+            if (request->hasArg("smartGrindUrlOff"))
+                settings->setSmartGrindUrlOff(request->arg("smartGrindUrlOff"));
+            if (request->hasArg("smartGrindMethod"))
+                settings->setSmartGrindMethod(request->arg("smartGrindMethod").toInt());
             settings->setHomeAssistant(request->hasArg("homeAssistant"));
             if (request->hasArg("haUser"))
                 settings->setHomeAssistantUser(request->arg("haUser"));
@@ -685,6 +695,11 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
     doc["smartGrindActive"] = settings.isSmartGrindActive();
     doc["smartGrindIp"] = settings.getSmartGrindIp();
     doc["smartGrindMode"] = settings.getSmartGrindMode();
+    doc["smartGrindType"] = settings.getSmartGrindType();
+    doc["smartGrindSwitchId"] = settings.getSmartGrindSwitchId();
+    doc["smartGrindUrlOn"] = settings.getSmartGrindUrlOn();
+    doc["smartGrindUrlOff"] = settings.getSmartGrindUrlOff();
+    doc["smartGrindMethod"] = settings.getSmartGrindMethod();
     doc["momentaryButtons"] = settings.isMomentaryButtons();
     doc["brewDelay"] = settings.getBrewDelay();
     doc["grindDelay"] = settings.getGrindDelay();
