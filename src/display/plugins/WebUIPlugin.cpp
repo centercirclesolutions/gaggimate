@@ -29,6 +29,18 @@ using PsramString = std::basic_string<char, std::char_traits<char>, PsramStlAllo
 static std::unordered_map<uint32_t, PsramString> rxBuffers;
 static WebUIPlugin *g_webUIPlugin = nullptr;
 
+// ws.makeBuffer() allocates via throwing operator new with an empty emergency
+// pool, so an OOM under fragmentation aborts the board instead of unwinding
+// (the async_tcp data path has no try/catch). Pre-check the largest block and
+// return nullptr so callers shed the frame. Single async task => no alloc races
+// between check and makeBuffer; +512B covers the control block and buffer object.
+static AsyncWebSocketMessageBuffer *safeMakeWsBuffer(AsyncWebSocket &ws, size_t size) {
+    if (size + 512 > heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)) {
+        return nullptr;
+    }
+    return ws.makeBuffer(size);
+}
+
 WebUIPlugin::WebUIPlugin() : server(80), ws("/ws") { g_webUIPlugin = this; }
 
 void WebUIPlugin::setup(Controller *_controller, PluginManager *_pluginManager) {
@@ -248,7 +260,20 @@ void WebUIPlugin::setupServer() {
         }
     });
     server.on("/api/core-dump", HTTP_GET, [this](AsyncWebServerRequest *request) { handleCoreDumpDownload(request); });
-    server.onNotFound([](AsyncWebServerRequest *request) { request->send(SPIFFS, "/w/index.html"); });
+    server.onNotFound([](AsyncWebServerRequest *request) {
+        // Serve the precompressed shell directly: request->send(SPIFFS, "/w/index.html") opens the nonexistent
+        // uncompressed path, and the SPIFFS name miss scans object-lookup pages partition-wide — seconds of sync
+        // work on the async_tcp task under fragmentation, tripping the WDT. We set the gzip header ourselves here.
+        auto *response = request->beginResponse(SPIFFS, "/w/index.html.gz", "text/html");
+        if (response != nullptr) {
+            response->addHeader("Content-Encoding", "gzip");
+            request->send(response);
+        } else {
+            // beginResponse returns nullptr when the file open/alloc fails under memory pressure — the same
+            // fragmentation this path guards against. Shed the request so the client retries instead of crashing.
+            request->send(503);
+        }
+    });
     // Content-hashed build assets (Vite emits them under /assets/ with a hash in the filename) never change for a
     // given URL, so let the browser cache them forever and skip the revalidation round-trip entirely. This must be
     // registered before the catch-all "/" handler so it wins for /assets/* requests. [GM-83]
@@ -385,17 +410,21 @@ void WebUIPlugin::handleWebSocketData(AsyncWebSocket *server, AsyncWebSocketClie
                     }
                     resp["msg"] = "Rebuild started";
                     size_t bufferSize = measureJson(resp);
-                    auto *buffer = ws.makeBuffer(bufferSize);
-                    serializeJson(resp, buffer->get(), bufferSize);
-                    client->text(buffer);
+                    auto *buffer = safeMakeWsBuffer(ws, bufferSize);
+                    if (buffer != nullptr) {
+                        serializeJson(resp, buffer->get(), bufferSize);
+                        client->text(buffer);
+                    }
                     ShotHistory.startAsyncRebuild();
                 } else if (msgType.startsWith("req:history")) {
                     JsonDocument resp(&psramAllocator);
                     ShotHistory.handleRequest(doc, resp);
                     size_t bufferSize = measureJson(resp);
-                    auto *buffer = ws.makeBuffer(bufferSize);
-                    serializeJson(resp, buffer->get(), bufferSize);
-                    client->text(buffer);
+                    auto *buffer = safeMakeWsBuffer(ws, bufferSize);
+                    if (buffer != nullptr) {
+                        serializeJson(resp, buffer->get(), bufferSize);
+                        client->text(buffer);
+                    }
                 } else if (msgType == "req:flush:start") {
                     handleFlushStart(client->id(), doc);
                 }
@@ -515,9 +544,11 @@ void WebUIPlugin::handleProfileRequest(uint32_t clientId, JsonDocument &request)
     }
 
     size_t bufferSize = measureJson(response);
-    auto *buffer = ws.makeBuffer(bufferSize);
-    serializeJson(response, buffer->get(), bufferSize);
-    ws.text(clientId, buffer);
+    auto *buffer = safeMakeWsBuffer(ws, bufferSize);
+    if (buffer != nullptr) {
+        serializeJson(response, buffer->get(), bufferSize);
+        ws.text(clientId, buffer);
+    }
 }
 
 void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
@@ -917,7 +948,7 @@ void WebUIPlugin::broadcastJson(JsonDocument &doc) {
         return;
     }
     const size_t len = measureJson(doc);
-    auto *buffer = ws.makeBuffer(len);
+    auto *buffer = safeMakeWsBuffer(ws, len);
     if (buffer == nullptr) {
         return; // out of buffers; drop this broadcast rather than churn the heap
     }
