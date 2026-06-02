@@ -41,6 +41,11 @@ void Settings::load() {
     smartGrindIp = preferences.getString("sg_i", "");
     smartGrindToggle = preferences.getBool("sg_t", false);
     smartGrindMode = preferences.getInt("sg_m", smartGrindToggle ? 1 : 0);
+    smartGrindType = preferences.getInt("sg_pt", 0);
+    smartGrindSwitchId = preferences.getString("sg_si", "");
+    smartGrindUrlOn = preferences.getString("sg_uo", "");
+    smartGrindUrlOff = preferences.getString("sg_uf", "");
+    smartGrindMethod = preferences.getInt("sg_mt", 0);
     homeAssistant = preferences.getBool("ha_a", false);
     homeAssistantIP = preferences.getString("ha_i", "");
     homeAssistantPort = preferences.getInt("ha_p", 1883);
@@ -259,6 +264,31 @@ void Settings::setSmartGrindIp(String smart_grind_ip) {
 
 void Settings::setSmartGrindMode(int smart_grind_mode) {
     this->smartGrindMode = smart_grind_mode;
+    save();
+}
+
+void Settings::setSmartGrindType(int smart_grind_type) {
+    this->smartGrindType = smart_grind_type;
+    save();
+}
+
+void Settings::setSmartGrindSwitchId(String smart_grind_switch_id) {
+    this->smartGrindSwitchId = std::move(smart_grind_switch_id);
+    save();
+}
+
+void Settings::setSmartGrindUrlOn(String smart_grind_url_on) {
+    this->smartGrindUrlOn = std::move(smart_grind_url_on);
+    save();
+}
+
+void Settings::setSmartGrindUrlOff(String smart_grind_url_off) {
+    this->smartGrindUrlOff = std::move(smart_grind_url_off);
+    save();
+}
+
+void Settings::setSmartGrindMethod(int smart_grind_method) {
+    this->smartGrindMethod = smart_grind_method;
     save();
 }
 
@@ -487,6 +517,11 @@ void Settings::doSave() {
     preferences.putString("sg_i", smartGrindIp);
     preferences.putBool("sg_t", smartGrindToggle);
     preferences.putInt("sg_m", smartGrindMode);
+    preferences.putInt("sg_pt", smartGrindType);
+    preferences.putString("sg_si", smartGrindSwitchId);
+    preferences.putString("sg_uo", smartGrindUrlOn);
+    preferences.putString("sg_uf", smartGrindUrlOff);
+    preferences.putInt("sg_mt", smartGrindMethod);
     preferences.putBool("ha_a", homeAssistant);
     preferences.putString("ha_i", homeAssistantIP);
     preferences.putInt("ha_p", homeAssistantPort);
