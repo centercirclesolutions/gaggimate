@@ -1,0 +1,13 @@
+# Dual-OTA table for the 8 MB controller. The controller receives firmware over
+# BLE, so it needs two app slots: Update.begin() writes the inactive slot while
+# the running slot keeps executing. A single ota_0 slot makes
+# esp_ota_get_next_update_partition() return the running partition, so the OTA
+# erases the executing XIP region and aborts. The ~0.9 MB controller image fits
+# either 3.3 MB slot with margin. Geometry matches the Arduino stock default_8MB.csv.
+# Name,   Type, SubType, Offset,  Size, Flags
+nvs,      data, nvs,     0x9000,  0x5000,
+otadata,  data, ota,     0xe000,  0x2000,
+app0,     app,  ota_0,   0x10000, 0x330000,
+app1,     app,  ota_1,   0x340000,0x330000,
+spiffs,   data, spiffs,  0x670000,0x180000,
+coredump, data, coredump,0x7F0000,0x10000,
