@@ -6,6 +6,8 @@
 #include <Preferences.h>
 #include <display/core/constants.h>
 #include <display/core/utils.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <vector>
 
 #define PREFERENCES_KEY "controller"
@@ -189,6 +191,11 @@ class Settings {
   private:
     Preferences preferences;
     bool dirty = false;
+    // Serializes doSave so the loopTask 5s tick and the AsyncTCP-task save(true)
+    // path (from WebUIPlugin handlers) can't enter the Preferences object
+    // concurrently. Overlapping doSave calls share the Preferences _started/
+    // _handle state and produce partial NVS writes.
+    SemaphoreHandle_t saveMutex = nullptr;
 
     String selectedProfile;
     String startupProfile; // Empty = last used profile, otherwise profile ID
