@@ -1,0 +1,13 @@
+# Controller 8 MB — dual-OTA. Controller app is small (~1.5 MB, headless: no
+# web/display/LittleFS), so two 3.3 MB OTA slots fit alongside spiffs + coredump.
+# The shared default_8mb.csv is single-slot (its big headless-display app can't
+# fit 2x); on the controller that single slot breaks BLE OTA — Update.begin()
+# finds no inactive partition and aborts. nvs/otadata offsets match the old
+# single-slot table, so an app-only reflash (no erase) preserves calibration.
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xe000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x330000,
+app1,       app,  ota_1,    0x340000, 0x330000,
+spiffs,     data, spiffs,   0x670000, 0x180000,
+coredump,   data, coredump, 0x7F0000, 0x10000,
