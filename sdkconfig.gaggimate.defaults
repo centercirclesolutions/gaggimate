@@ -55,8 +55,8 @@ CONFIG_LIBC_NEWLIB_NANO_FORMAT=n
 # does not link the scales lib and stays -fno-exceptions.
 CONFIG_COMPILER_CXX_EXCEPTIONS=y
 
-# Dual-framework builds IDF from source and loses two Kconfig overrides the
-# precompiled arduino-esp32 libs carried; both default to a silently-broken state.
+# Dual-framework builds IDF from source and loses Kconfig overrides the
+# precompiled arduino-esp32 libs carried; each defaults to a silently-broken state.
 
 # FATFS defaults to LFN_NONE (8.3 names) -> SD profiles with long names read as
 # card corruption. STACK mode costs ~520 B of caller stack during a lookup.
@@ -68,3 +68,12 @@ CONFIG_ESP_COREDUMP_ENABLE=y
 CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
 CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
 CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+
+# LCD_RGB_RESTART_IN_VSYNC defaults to n -> single PSRAM-bus contention event
+# (WiFi/BT alloc, TLS handshake, big WS payload) can desync LCD_CAM from HSYNC
+# and PERMANENTLY shift the panel image until reboot — IDF docs call it the
+# "permanently shifted image" failure. Resetting the GDMA channel at VSYNC_END
+# restarts the DMA stream from the framebuffer head each frame, so a desync
+# clears on the next refresh. See components/esp_lcd/rgb/esp_lcd_panel_rgb.c —
+# lcd_rgb_panel_try_restart_transmission().
+CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
