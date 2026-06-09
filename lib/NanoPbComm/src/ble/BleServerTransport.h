@@ -28,8 +28,12 @@ class BleServerTransport : public Transport, public NimBLEServerCallbacks, publi
     bool send(const uint8_t *data, size_t length) override;
     bool isConnected() const override;
 
+    // Link-layer disconnect; survives a wedged GATT.
+    void disconnect();
+
   private:
     bool _connected = false;
+    uint16_t _connHandle = BLE_HS_CONN_HANDLE_NONE;
     NimBLEServer *_server = nullptr;
     NimBLEAdvertising *_advertising = nullptr;
     NimBLECharacteristic *_rxChar = nullptr;   // client -> server (write)
@@ -39,6 +43,7 @@ class BleServerTransport : public Transport, public NimBLEServerCallbacks, publi
     BLE_OTA_DFU _otaDfu;
 
     void onConnect(NimBLEServer *server) override;
+    void onConnect(NimBLEServer *server, ble_gap_conn_desc *desc) override;
     void onDisconnect(NimBLEServer *server) override;
     void onWrite(NimBLECharacteristic *characteristic) override;
     void onSubscribe(NimBLECharacteristic *pCharacteristic, ble_gap_conn_desc *desc, uint16_t subValue) override;

@@ -56,11 +56,25 @@ void BleServerTransport::onConnect(NimBLEServer *server) {
     emitConnection(true);
 }
 
+void BleServerTransport::onConnect(NimBLEServer *server, ble_gap_conn_desc *desc) {
+    // This overload carries the conn handle we need for explicit disconnect().
+    if (desc)
+        _connHandle = desc->conn_handle;
+}
+
 void BleServerTransport::onDisconnect(NimBLEServer *server) {
     _connected = false;
+    _connHandle = BLE_HS_CONN_HANDLE_NONE;
     ESP_LOGI(LOG_TAG, "Client disconnected");
     emitConnection(false);
     server->startAdvertising();
+}
+
+void BleServerTransport::disconnect() {
+    if (_connected && _server && _connHandle != BLE_HS_CONN_HANDLE_NONE) {
+        ESP_LOGW(LOG_TAG, "Forcing client disconnect (conn=%u)", _connHandle);
+        _server->disconnect(_connHandle);
+    }
 }
 
 void BleServerTransport::onWrite(NimBLECharacteristic *characteristic) {
