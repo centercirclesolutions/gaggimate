@@ -55,6 +55,9 @@ class GaggiMateController {
     String _version;
     unsigned long lastPingTime = 0;
     size_t errorState = ERROR_CODE_NONE;
+    // Boiler setpoint captured when the ping watchdog fires, so the heater can be
+    // restored to its commanded target once the link recovers (see handlePing).
+    float setpointBeforeTimeout = 0.0f;
 
     const char *LOG_TAG = "GaggiMateController";
 };
