@@ -24,7 +24,9 @@
 #define DEFAULT_HOME_ASSISTANT_TOPIC "homeassistant"
 #define DEFAULT_STEAM_PUMP_PERCENTAGE 4.f
 #define DEFAULT_STEAM_PUMP_CUTOFF 2.f
-#define WIFI_CONNECT_ATTEMPTS 20
+// 60 x 500ms = 30s. WPA3-SAE association alone measured ~10s on real APs;
+// the old 10s budget had no margin and dropped straight into AP-fallback.
+#define WIFI_CONNECT_ATTEMPTS 60
 
 #define MODE_STANDBY 0
 #define MODE_BREW 1
