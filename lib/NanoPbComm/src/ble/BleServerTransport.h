@@ -28,8 +28,12 @@ class BleServerTransport : public Transport, public NimBLEServerCallbacks, publi
     bool send(const uint8_t *data, size_t length) override;
     bool isConnected() const override;
 
+    // Link-layer disconnect; survives a wedged GATT.
+    void disconnect();
+
   private:
     bool _connected = false;
+    uint16_t _connHandle = BLE_HS_CONN_HANDLE_NONE;
     NimBLEServer *_server = nullptr;
     NimBLEAdvertising *_advertising = nullptr;
     NimBLECharacteristic *_rxChar = nullptr;   // client -> server (write)
