@@ -53,8 +53,15 @@ bool BleServerTransport::send(const uint8_t *data, size_t length) {
 
 bool BleServerTransport::isConnected() const { return _connected; }
 
-void BleServerTransport::onConnect(NimBLEServer *server, NimBLEConnInfo &) {
+void BleServerTransport::disconnect() {
+    if (_server != nullptr && _connHandle != BLE_HS_CONN_HANDLE_NONE) {
+        _server->disconnect(_connHandle);
+    }
+}
+
+void BleServerTransport::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) {
     _connected = true;
+    _connHandle = connInfo.getConnHandle();
     server->stopAdvertising();
     ESP_LOGI(LOG_TAG, "Client connected");
     emitConnection(true);
@@ -62,6 +69,7 @@ void BleServerTransport::onConnect(NimBLEServer *server, NimBLEConnInfo &) {
 
 void BleServerTransport::onDisconnect(NimBLEServer *server, NimBLEConnInfo &, int) {
     _connected = false;
+    _connHandle = BLE_HS_CONN_HANDLE_NONE;
     ESP_LOGI(LOG_TAG, "Client disconnected");
     emitConnection(false);
     server->startAdvertising();

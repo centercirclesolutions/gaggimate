@@ -184,6 +184,8 @@ class Controller {
     bool isApConnection = false;
     bool initialized = false;
     bool screenReady = false;
+    volatile bool wifiConnectedPending = false;
+    volatile bool wifiDisconnectedPending = false;
     bool waitingForController = false;
     unsigned long connectStartTime = 0;
     bool volumetricOverride = false;

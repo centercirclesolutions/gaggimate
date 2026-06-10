@@ -245,12 +245,17 @@ void GaggiMateController::handlePing() {
 }
 
 void GaggiMateController::handlePingTimeout() {
-    ESP_LOGE(LOG_TAG, "Ping timeout detected. Turning off heater and pump for safety.\n");
     // Turn off the heater and pump as a safety measure
     this->heater->setSetpoint(0);
     this->pump->setPower(0);
     this->valve->set(false);
     this->alt->set(false);
+    // LL_TERMINATE_IND survives a wedged GATT; gate on the transition so we
+    // don't bounce every 250 ms.
+    if (errorState != ERROR_CODE_TIMEOUT) {
+        ESP_LOGE(LOG_TAG, "Ping timeout detected. Turning off heater and pump for safety.");
+        _comms.disconnect();
+    }
     errorState = ERROR_CODE_TIMEOUT;
 }
 
