@@ -52,6 +52,8 @@ class GaggiMateServer {
     void sendTofMeasurement(uint32_t distance);
     void sendError(int code);
 
+    void disconnect() { _transport.disconnect(); }
+
     // Send a pre-built payload / batch of payloads (one frame).
     void send(const gm::Payload &payload) { _endpoint.send(payload); }
     void sendBatch(const gm::Payload *payloads, size_t count) { _endpoint.sendBatch(payloads, count); }

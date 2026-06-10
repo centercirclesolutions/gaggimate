@@ -24,6 +24,7 @@
 #include <display/plugins/ShotHistoryPlugin.h>
 #include <display/plugins/SmartGrindPlugin.h>
 #include <display/plugins/WebUIPlugin.h>
+#include <display/plugins/WifiStaWatchdogPlugin.h>
 #include <display/plugins/mDNSPlugin.h>
 #include <display/util/PsramAllocator.h>
 #ifndef GAGGIMATE_HEADLESS
@@ -81,6 +82,7 @@ void Controller::setup() {
     }
     pluginManager->registerPlugin(new WebUIPlugin());
     pluginManager->registerPlugin(new NetworkWatchdogPlugin());
+    pluginManager->registerPlugin(new WifiStaWatchdogPlugin());
     pluginManager->registerPlugin(&ShotHistory);
     pluginManager->registerPlugin(&BLEScales);
     pluginManager->registerPlugin(new LedControlPlugin());
@@ -377,6 +379,52 @@ void Controller::setupWifi() {
         WiFi.mode(WIFI_STA);
         WiFi.setAutoReconnect(true);
         WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+
+        // Register handlers BEFORE begin() so boot-connect events fire through
+        // them too. Handlers run on the WiFi event task -- log and flag only.
+        WiFi.onEvent(
+            [this](WiFiEvent_t, WiFiEventInfo_t info) {
+                const auto &g = info.got_ip.ip_info;
+                const uint32_t ip = g.ip.addr;
+                const uint32_t gw = g.gw.addr;
+                ESP_LOGI(LOG_TAG, "STA got IP: %u.%u.%u.%u gw=%u.%u.%u.%u",
+                         (unsigned)(ip & 0xff), (unsigned)((ip >> 8) & 0xff),
+                         (unsigned)((ip >> 16) & 0xff), (unsigned)((ip >> 24) & 0xff),
+                         (unsigned)(gw & 0xff), (unsigned)((gw >> 8) & 0xff),
+                         (unsigned)((gw >> 16) & 0xff), (unsigned)((gw >> 24) & 0xff));
+                wifiConnectedPending = true;
+            },
+            WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
+        // setMinSecurity() is a scan filter, not an auth ceiling -- log what was negotiated.
+        WiFi.onEvent(
+            [](WiFiEvent_t, WiFiEventInfo_t info) {
+                const auto &c = info.wifi_sta_connected;
+                ESP_LOGI(LOG_TAG, "STA connected: ssid=%.*s bssid=%02x:%02x:%02x:%02x:%02x:%02x ch=%u authmode=%u",
+                         (int)c.ssid_len, c.ssid, c.bssid[0], c.bssid[1], c.bssid[2], c.bssid[3], c.bssid[4],
+                         c.bssid[5], c.channel, c.authmode);
+            },
+            WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED);
+        // disconnectReasonName() returns NULL for vendor codes (UniFi 168).
+        WiFi.onEvent(
+            [this](WiFiEvent_t, WiFiEventInfo_t info) {
+                const auto &d = info.wifi_sta_disconnected;
+                const char *name = WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(d.reason));
+                ESP_LOGW(LOG_TAG, "STA disconnected: reason=%u (%s) bssid=%02x:%02x:%02x:%02x:%02x:%02x ssid=%.*s",
+                         d.reason, name && *name ? name : "vendor/unknown", d.bssid[0], d.bssid[1], d.bssid[2],
+                         d.bssid[3], d.bssid[4], d.bssid[5], (int)d.ssid_len, d.ssid);
+                wifiDisconnectedPending = true;
+            },
+            WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+        WiFi.onEvent(
+            [](WiFiEvent_t, WiFiEventInfo_t) { ESP_LOGW(LOG_TAG, "STA lost IP"); },
+            WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_LOST_IP);
+        WiFi.onEvent(
+            [](WiFiEvent_t, WiFiEventInfo_t info) {
+                ESP_LOGW(LOG_TAG, "STA authmode changed: %u -> %u", info.wifi_sta_authmode_change.old_mode,
+                         info.wifi_sta_authmode_change.new_mode);
+            },
+            WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE);
+
         WiFi.begin(settings.getWifiSsid(), settings.getWifiPassword());
         WiFi.setTxPower(WIFI_POWER_19_5dBm);
         for (int attempts = 0; attempts < WIFI_CONNECT_ATTEMPTS; attempts++) {
@@ -390,18 +438,6 @@ void Controller::setupWifi() {
         if (WiFi.status() == WL_CONNECTED) {
             ESP_LOGI(LOG_TAG, "Connected to %s with IP address %s", settings.getWifiSsid().c_str(),
                      WiFi.localIP().toString().c_str());
-            // These run in the Arduino WiFi event task (small stack). Only flag
-            // the change here; loop() fires the plugin events on the main loop so
-            // server/mDNS/socket teardown never runs in this callback context.
-            WiFi.onEvent([this](WiFiEvent_t, WiFiEventInfo_t) { wifiConnectedPending = true; },
-                         WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
-            WiFi.onEvent(
-                [this](WiFiEvent_t, WiFiEventInfo_t info) {
-                    ESP_LOGI(LOG_TAG, "Lost WiFi connection. Reason: %s",
-                             WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(info.wifi_sta_disconnected.reason)));
-                    wifiDisconnectedPending = true;
-                },
-                WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
             configTzTime(resolve_timezone(settings.getTimezone()), NTP_SERVER);
             setenv("TZ", resolve_timezone(settings.getTimezone()), 1);
             tzset();
@@ -426,7 +462,10 @@ void Controller::setupWifi() {
     pluginManager->on("ota:update:start", [this](Event const &) { this->updating = true; });
     pluginManager->on("ota:update:end", [this](Event const &) { this->updating = false; });
 
-    pluginManager->trigger("controller:wifi:connect", "AP", isApConnection ? 1 : 0);
+    // AP path has no STA_GOT_IP; STA path dispatches from the handler.
+    if (isApConnection) {
+        pluginManager->trigger("controller:wifi:connect", "AP", 1);
+    }
 }
 
 void Controller::loop() {
