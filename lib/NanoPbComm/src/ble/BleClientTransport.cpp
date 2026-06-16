@@ -87,21 +87,26 @@ bool BleClientTransport::connectToServer() {
         return true; // link intentionally kept; do not disconnect/rescan
     }
 
+    _readyForConnection = false;
+    _incompatible = false;
+    ESP_LOGI(LOG_TAG, "Connected, MTU: %d", _client->getMTU());
+
+    // Emit (and reset the endpoint session) BEFORE subscribing, else the controller's
+    // SystemInfo push + our config burst race ahead and get wiped by the late reset -> no-heat on reconnect.
+    emitConnection(true);
+
     // Without the notify subscription we would connect but never receive data;
     // treat a failed subscribe as a failed connection.
     if (!_notifyChar->canNotify() ||
         !_notifyChar->subscribe(true, std::bind(&BleClientTransport::notifyCallback, this, std::placeholders::_1,
                                                 std::placeholders::_2, std::placeholders::_3, std::placeholders::_4))) {
         ESP_LOGE(LOG_TAG, "Failed to subscribe to TX characteristic");
+        emitConnection(false);
         _client->disconnect();
         scan();
         return false;
     }
 
-    _readyForConnection = false;
-    _incompatible = false;
-    ESP_LOGI(LOG_TAG, "Connected, MTU: %d", _client->getMTU());
-    emitConnection(true);
     return true;
 }
 

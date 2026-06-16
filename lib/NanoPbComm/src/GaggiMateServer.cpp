@@ -10,8 +10,16 @@ void GaggiMateServer::init(const String &deviceName, const String &hardware, con
     setSystemInfo(hardware, version, capabilities);
     registerHandlers();
     _endpoint.onConnection([this](bool connected) {
-        if (connected)
-            pushSystemInfo();
+        // Don't announce SystemInfo synchronously here: pushing it mid-handshake makes
+        // the display's config burst race link setup. pumpTask announces once the link
+        // is stable, then re-announces until PID settings actually arrive (convergence).
+        _linkUp = connected;
+        if (connected) {
+            _linkSettledAt = millis();
+            _configReceived = false;
+            _lastSysInfoPush = 0;
+            _sysInfoAttempts = 0;
+        }
     });
     _endpoint.begin();
     _transport.init(deviceName);
@@ -27,6 +35,16 @@ void GaggiMateServer::pumpTask(void *arg) {
     TickType_t lastWake = xTaskGetTickCount();
     for (;;) {
         self->_endpoint.loop();
+        // Announce SystemInfo once the link has been stable for SYSINFO_STABILIZE_MS,
+        // then re-announce every SYSINFO_RETRY_MS until PID settings arrive -- so a
+        // single lost burst self-heals instead of leaving the heater on default gains.
+        if (self->_linkUp && !self->_configReceived && self->_sysInfoAttempts < MAX_SYSINFO_ATTEMPTS &&
+            (millis() - self->_linkSettledAt) >= SYSINFO_STABILIZE_MS &&
+            (self->_lastSysInfoPush == 0 || (millis() - self->_lastSysInfoPush) >= SYSINFO_RETRY_MS)) {
+            self->_lastSysInfoPush = millis();
+            self->_sysInfoAttempts++;
+            self->pushSystemInfo();
+        }
         xTaskDelayUntil(&lastWake, pdMS_TO_TICKS(15));
     }
 }
@@ -149,6 +167,7 @@ void GaggiMateServer::registerHandlers() {
             _relayCb(static_cast<uint8_t>(p.content.relay.index), p.content.relay.open);
     });
     _endpoint.on(gaggimate_Payload_pid_tag, [this](const gm::Payload &p) {
+        _configReceived = true; // PID settings landed -> stop re-announcing SystemInfo (convergence)
         if (_pidCb)
             _pidCb(p.content.pid.kp, p.content.pid.ki, p.content.pid.kd, p.content.pid.kf);
     });
