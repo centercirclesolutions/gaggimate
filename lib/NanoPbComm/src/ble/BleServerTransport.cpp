@@ -53,11 +53,21 @@ bool BleServerTransport::send(const uint8_t *data, size_t length) {
 
 bool BleServerTransport::isConnected() const { return _connected; }
 
-void BleServerTransport::onConnect(NimBLEServer *server, NimBLEConnInfo &) {
+void BleServerTransport::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) {
     _connected = true;
+    _connHandle = connInfo.getConnHandle(); // needed by disconnect() (#744 ping-watchdog recovery)
     server->stopAdvertising();
     ESP_LOGI(LOG_TAG, "Client connected");
     emitConnection(true);
+}
+
+// Force-drop the client so the display rebuilds the link from scratch after a
+// ping-watchdog timeout (#744). NimBLE 2.x: disconnect by stored conn handle.
+void BleServerTransport::disconnect() {
+    if (_connected && _server && _connHandle != BLE_HS_CONN_HANDLE_NONE) {
+        ESP_LOGW(LOG_TAG, "Forcing client disconnect (conn=%u)", _connHandle);
+        _server->disconnect(_connHandle);
+    }
 }
 
 void BleServerTransport::onDisconnect(NimBLEServer *server, NimBLEConnInfo &, int) {
