@@ -27,9 +27,17 @@ class BleServerTransport : public Transport, public NimBLEServerCallbacks, publi
 
     bool send(const uint8_t *data, size_t length) override;
     bool isConnected() const override;
+    bool isUpdating() const { return _otaDfu.isUpdating(); };
+
+    // Tear down the GATT client connection at the link layer. Used by the
+    // controller when its ping watchdog fires: an LL_TERMINATE_IND propagates
+    // even when GATT writes have been silently dropping, so the display sees
+    // the disconnect and rebuilds the link from scratch.
+    void disconnect();
 
   private:
     bool _connected = false;
+    uint16_t _connHandle = BLE_HS_CONN_HANDLE_NONE;
     NimBLEServer *_server = nullptr;
     NimBLEAdvertising *_advertising = nullptr;
     NimBLECharacteristic *_rxChar = nullptr;   // client -> server (write)

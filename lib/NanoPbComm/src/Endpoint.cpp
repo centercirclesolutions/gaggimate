@@ -201,8 +201,17 @@ void Endpoint::handleData(const uint8_t *data, size_t length) {
 
     bool duplicate = false;
     lock();
-    if (ack != 0 && _inFlight && ack == _inFlightId)
+    if (ack != 0 && _inFlight && ack == _inFlightId) {
+        // Sample RTT only when the frame was ACKed without a retransmit -- after
+        // a retransmit we can't tell which copy this ACK answers (Karn's rule).
+        if (_retries == 0) {
+            const uint32_t rtt = static_cast<uint32_t>(millis() - _sentAt);
+            _lastRttMs = rtt;
+            _smoothedRttMs = _rttValid ? (_smoothedRttMs * 7 + rtt) / 8 : rtt;
+            _rttValid = true;
+        }
         _inFlight = false;
+    }
     if (id != 0 && id <= _lastRxId)
         duplicate = true; // retransmit of an already-processed frame
     unlock();
@@ -249,6 +258,9 @@ void Endpoint::handleConnection(bool connected) {
     _inFlightId = 0;
     _lastRxId = 0;
     _nextId = 1;
+    _rttValid = false; // latency is per-link; don't carry a stale estimate across reconnects
+    _smoothedRttMs = 0;
+    _lastRttMs = 0;
     _queue.clear();
     unlock();
 

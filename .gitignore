@@ -29,3 +29,8 @@ logs/
 # Editor / agent workspaces
 .serena/
 .claude/
+# Generated web UI bundle embedded into firmware flash (scripts/embed_webui.py)
+src/display/webassets/
+# Desktop simulator runtime data (settings/profiles/shots) and screenshots
+sim_data/
+*.bmp

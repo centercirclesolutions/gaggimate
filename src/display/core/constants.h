@@ -26,6 +26,10 @@
 #define DEFAULT_STEAM_PUMP_CUTOFF 2.f
 #define WIFI_CONNECT_ATTEMPTS 20
 
+#define DEFAULT_COMMUTATION_GAIN 0.7f
+#define DEFAULT_CONVERGENCE_GAIN 1.0f
+#define DEFAULT_INTEGRAL_GAIN 0.25f
+
 #define MODE_STANDBY 0
 #define MODE_BREW 1
 #define MODE_STEAM 2
@@ -39,5 +43,7 @@
 
 #define WIFI_CONNECT_TIMEOUT_MS 30000
 #define DEFAULT_WIFI_AP_TIMEOUT_MS 600000
+#define DEFAULT_WIFI_AP_PASSWORD_LENGTH 10 // generated AP password length (alphanumeric)
+#define WIFI_AP_PASSWORD_MIN_LENGTH 8      // WPA2 minimum passphrase length
 
 #endif // CONSTANTS_H

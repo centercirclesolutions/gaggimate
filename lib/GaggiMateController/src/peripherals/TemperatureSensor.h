@@ -1,12 +1,14 @@
 #ifndef TEMPERATURESENSOR_H
 #define TEMPERATURESENSOR_H
 
+constexpr double MAX_SAFE_TEMP = 170.0;
+
 class TemperatureSensor {
   public:
     virtual ~TemperatureSensor() = default;
-
-    virtual float read() = 0;
-    virtual bool isErrorState() = 0;
+    virtual float read();
+    virtual bool isErrorState();
+    virtual void setup();
 };
 
 #endif // TEMPERATURESENSOR_H

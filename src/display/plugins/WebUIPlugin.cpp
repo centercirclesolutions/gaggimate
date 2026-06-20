@@ -1,7 +1,7 @@
 #include "WebUIPlugin.h"
 #include <DNSServer.h>
+#include <LittleFS.h>
 #include <SD_MMC.h>
-#include <SPIFFS.h>
 #include <algorithm>
 #include <display/core/Controller.h>
 #include <display/core/MemoryMonitor.h>
@@ -12,10 +12,12 @@
 #include <display/plugins/BLEScalePlugin.h>
 #include <display/plugins/ShotHistoryPlugin.h>
 #include <display/util/PsramStlAllocator.h>
+#include <display/webassets/web_ui_manifest.h>
 #include <esp_core_dump.h>
 #include <esp_err.h>
 #include <esp_heap_caps.h>
 #include <esp_partition.h>
+#include <mbedtls/platform.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -29,9 +31,31 @@ using PsramString = std::basic_string<char, std::char_traits<char>, PsramStlAllo
 static std::unordered_map<uint32_t, PsramString> rxBuffers;
 static WebUIPlugin *g_webUIPlugin = nullptr;
 
+// Route mbedTLS allocations to PSRAM. The Arduino-ESP32 sdkconfig sets
+// CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC=y, pinning TLS handshake buffers (~32 KB) to the
+// scarce internal DRAM that WiFi + BLE already leave near ~60 KB free. A CA-verified OTA
+// update check then drives internal free toward zero and crypto allocations start failing
+// (esp-sha/esp-aes "Failed to allocate"). mbedTLS is built with MBEDTLS_PLATFORM_MEMORY
+// (function-pointer allocator), so this runtime override moves those buffers to the 8 MB
+// PSRAM. Falls back to internal DRAM if PSRAM is exhausted so TLS still functions;
+// heap_caps_free handles pointers from either heap. The void* parameter/return types below are
+// dictated by the mbedtls_platform_set_calloc_free() callback contract and cannot be narrowed
+// (cpp:S5008 is a false positive here; retyping or casting the function pointers would be UB).
+static void *mbedtlsPsramCalloc(size_t n, size_t size) { // NOSONAR
+    void *p = heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (p == nullptr) {
+        p = heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    return p;
+}
+static void mbedtlsPsramFree(void *p) { heap_caps_free(p); } // NOSONAR
+
 WebUIPlugin::WebUIPlugin() : server(80), ws("/ws") { g_webUIPlugin = this; }
 
 void WebUIPlugin::setup(Controller *_controller, PluginManager *_pluginManager) {
+    // Redirect mbedTLS allocations to PSRAM before any TLS (OTA) handshake runs, so the
+    // ~32 KB handshake buffers don't exhaust the scarce internal-DRAM pool. See mbedtlsPsramCalloc.
+    (void)mbedtls_platform_set_calloc_free(mbedtlsPsramCalloc, mbedtlsPsramFree);
     this->controller = _controller;
     this->profileManager = _controller->getProfileManager();
     this->pluginManager = _pluginManager;
@@ -51,7 +75,13 @@ void WebUIPlugin::setup(Controller *_controller, PluginManager *_pluginManager) 
         apMode = event.getInt("AP");
         start();
     });
-    pluginManager->on("controller:wifi:disconnect", [this](Event const &) { stop(); });
+    // Intentionally do NOT stop the server on a WiFi disconnect: the listen
+    // socket survives a reconnect, and tearing it down only to rebind moments
+    // later races AsyncTCP's async close (bind: -8) and churns sockets in the
+    // recovery path. The server keeps listening; clients reconnect on their own.
+    pluginManager->on("controller:wifi:disconnect", [this](Event const &) {
+        ws.cleanupClients(); // drop dead websocket clients; keep the listener up
+    });
     pluginManager->on("controller:ready", [this](Event const &) {
         ota->setControllerVersion(controller->getSystemInfo().version);
         ota->init(controller->getClientController()->getClient());
@@ -115,6 +145,7 @@ void WebUIPlugin::loop() {
         statusDoc["puid"] = controller->getProfileManager()->getSelectedProfile().id;
         statusDoc["cp"] = controller->getSystemInfo().capabilities.pressure;
         statusDoc["cd"] = controller->getSystemInfo().capabilities.dimming;
+        statusDoc["gp"] = controller->getSystemInfo().capabilities.hasAddon(7);
         statusDoc["tw"] = profileManager->getSelectedProfile().getTotalVolume(); // total target weight for the process
         statusDoc["bta"] = controller->isVolumetricAvailable() ? 1 : 0;
         statusDoc["bt"] =
@@ -128,9 +159,13 @@ void WebUIPlugin::loop() {
         statusDoc["wl"] = controller->getWaterLevel();
         statusDoc["tof"] = controller->getTofDistance();
         statusDoc["rssi"] = 0;
+        statusDoc["lat"] = -1; // BLE round-trip latency (ms); -1 = not yet measured
 
         if (controller->getClientController()->getClient()->isConnected()) {
             statusDoc["rssi"] = controller->getClientController()->getClient()->getRssi();
+        }
+        if (controller->getClientController()->hasLatency()) {
+            statusDoc["lat"] = controller->getClientController()->getLatencyMs();
         }
 
         bool bleConnected = BLEScales.isConnected();
@@ -203,6 +238,52 @@ void WebUIPlugin::loop() {
     }
 }
 
+// Linear lookup over the embedded asset table (~60 entries) — a couple of
+// strcmps per request, negligible next to the network round-trip.
+static const WebAsset *findWebAsset(const String &path) {
+    for (size_t i = 0; i < WEB_ASSETS_COUNT; i++) {
+        if (path == WEB_ASSETS[i].path) {
+            return &WEB_ASSETS[i];
+        }
+    }
+    return nullptr;
+}
+
+void WebUIPlugin::serveWebAsset(AsyncWebServerRequest *request) {
+    String path = request->url();
+    if (path.isEmpty() || path == "/") {
+        path = WEB_UI_INDEX_PATH;
+    }
+
+    const WebAsset *asset = findWebAsset(path);
+    if (asset == nullptr && !path.startsWith("/assets/")) {
+        // SPA client-side routes (e.g. /settings, /profiles) aren't real files —
+        // fall back to index.html. A miss under /assets/ is a genuine 404, not a
+        // route, so it is not rewritten.
+        asset = findWebAsset(WEB_UI_INDEX_PATH);
+    }
+    if (asset == nullptr) {
+        request->send(404, "text/plain", "Not found");
+        return;
+    }
+
+    // Serve straight from the memory-mapped flash blob — no copy into RAM, no
+    // filesystem read. AsyncProgmemResponse streams from the pointer in chunks.
+    AsyncWebServerResponse *response =
+        request->beginResponse(200, asset->contentType, gWebUiBlobStart + asset->offset, asset->length);
+    if (asset->gzip) {
+        response->addHeader("Content-Encoding", "gzip");
+    }
+    // Content-hashed build assets (/assets/<hash>.js) never change for a given URL — cache them forever. index.html and
+    // other unhashed files must revalidate so a new build is picked up after an update. [GM-83]
+    if (path.startsWith("/assets/")) {
+        response->addHeader("Cache-Control", "public, max-age=31536000, immutable");
+    } else {
+        response->addHeader("Cache-Control", "no-cache");
+    }
+    request->send(response);
+}
+
 void WebUIPlugin::setupServer() {
     server.on("/connecttest.txt", [](AsyncWebServerRequest *request) {
         request->redirect("http://logout.net");
@@ -248,14 +329,10 @@ void WebUIPlugin::setupServer() {
         }
     });
     server.on("/api/core-dump", HTTP_GET, [this](AsyncWebServerRequest *request) { handleCoreDumpDownload(request); });
-    server.onNotFound([](AsyncWebServerRequest *request) { request->send(SPIFFS, "/w/index.html"); });
-    // Content-hashed build assets (Vite emits them under /assets/ with a hash in the filename) never change for a
-    // given URL, so let the browser cache them forever and skip the revalidation round-trip entirely. This must be
-    // registered before the catch-all "/" handler so it wins for /assets/* requests. [GM-83]
-    server.serveStatic("/assets/", SPIFFS, "/w/assets/").setCacheControl("public, max-age=31536000, immutable");
-    // index.html and other unhashed root files must stay revalidated so a new build (which references freshly
-    // hashed assets) is always picked up after an OTA/filesystem update.
-    server.serveStatic("/", SPIFFS, "/w").setDefaultFile("index.html").setCacheControl("no-cache");
+    // The web UI is embedded in firmware flash and served from the memory-mapped blob (see serveWebAsset). It is no
+    // longer in LittleFS, so OTA never touches the partition holding profiles/shots. The catch-all onNotFound handles
+    // every path not claimed by an explicit server.on()/api route above. [GM-106]
+    server.onNotFound([this](AsyncWebServerRequest *request) { serveWebAsset(request); });
     ws.onEvent(
         [this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
             if (type == WS_EVT_CONNECT) {
@@ -280,7 +357,13 @@ void WebUIPlugin::setupServer() {
 }
 
 void WebUIPlugin::start() {
-    stop();
+    if (serverRunning) {
+        // Already listening. The 0.0.0.0:80 listen socket survives a WiFi
+        // reconnect, so re-running end()+begin() only races AsyncTCP's async
+        // socket close and fails to rebind ("bind: -8, port in use"). A transient
+        // STA reconnect needs nothing done here.
+        return;
+    }
     server.begin();
     ESP_LOGI("WebUIPlugin", "Started webserver");
     if (apMode) {
@@ -296,14 +379,15 @@ void WebUIPlugin::start() {
 void WebUIPlugin::stop() {
     if (!serverRunning)
         return;
-    server.end();
     ws.closeAll();
+    server.end();
     if (dnsServer != nullptr) {
         dnsServer->stop();
         delete dnsServer;
         dnsServer = nullptr;
     }
     serverRunning = false;
+    ESP_LOGI("WebUIPlugin", "WebUIPlugin stopped (wifi disconnected)");
 }
 
 void WebUIPlugin::handleWebSocketData(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg,
@@ -545,6 +629,8 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
                 settings->setMdnsName(request->arg("mdnsName"));
             if (request->hasArg("wifiPassword") && request->arg("wifiPassword") != "---unchanged---")
                 settings->setWifiPassword(request->arg("wifiPassword"));
+            if (request->hasArg("apPassword") && request->arg("apPassword").length() >= WIFI_AP_PASSWORD_MIN_LENGTH)
+                settings->setWifiApPassword(request->arg("apPassword"));
             settings->setHomekit(request->hasArg("homekit"));
             settings->setBoilerFillActive(request->hasArg("boilerFillActive"));
             if (request->hasArg("startupFillTime"))
@@ -590,14 +676,14 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
                 settings->setSteamPumpCutoff(request->arg("steamPumpCutoff").toFloat());
             if (request->hasArg("themeMode"))
                 settings->setThemeMode(request->arg("themeMode").toInt());
-            if (request->hasArg("sunriseR"))
-                settings->setSunriseR(request->arg("sunriseR").toInt());
-            if (request->hasArg("sunriseG"))
-                settings->setSunriseG(request->arg("sunriseG").toInt());
-            if (request->hasArg("sunriseB"))
-                settings->setSunriseB(request->arg("sunriseB").toInt());
-            if (request->hasArg("sunriseW"))
-                settings->setSunriseW(request->arg("sunriseW").toInt());
+            if (request->hasArg("sunriseIdle"))
+                settings->setSunriseIdle(request->arg("sunriseIdle"));
+            if (request->hasArg("sunriseActive"))
+                settings->setSunriseActive(request->arg("sunriseActive"));
+            if (request->hasArg("sunriseFinished"))
+                settings->setSunriseFinished(request->arg("sunriseFinished"));
+            if (request->hasArg("sunriseError"))
+                settings->setSunriseError(request->arg("sunriseError"));
             if (request->hasArg("sunriseExtBrightness"))
                 settings->setSunriseExtBrightness(request->arg("sunriseExtBrightness").toInt());
             if (request->hasArg("emptyTankDistance"))
@@ -608,6 +694,16 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
                 settings->setAltRelayFunction(request->arg("altRelayFunction").toInt());
             if (request->hasArg("buttonBehavior"))
                 settings->setButtonBehaviorList(explode(request->arg("buttonBehavior"), ','));
+            if (request->hasArg("commutationGain"))
+                settings->setCommutationGain(request->arg("commutationGain").toFloat());
+            if (request->hasArg("convergenceGain"))
+                settings->setConvergenceGain(request->arg("convergenceGain").toFloat());
+            if (request->hasArg("integralGain"))
+                settings->setIntegralGain(request->arg("integralGain").toFloat());
+            if (request->hasArg("maxPumpPower"))
+                settings->setMaxPumpPower(request->arg("maxPumpPower").toFloat());
+            if (request->hasArg("savedScale"))
+                settings->setSavedScale(request->arg("savedScale"));
             settings->setAutoWakeupEnabled(request->hasArg("autowakeupEnabled"));
             if (request->hasArg("autowakeupSchedules")) {
                 // Handle schedule format with days
@@ -676,6 +772,7 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
     doc["pumpModelCoeffs"] = settings.getPumpModelCoeffs();
     doc["wifiSsid"] = settings.getWifiSsid();
     doc["wifiPassword"] = apMode ? "---unchanged---" : settings.getWifiPassword();
+    doc["apPassword"] = settings.getWifiApPassword();
     doc["mdnsName"] = settings.getMdnsName();
     doc["temperatureOffset"] = String(settings.getTemperatureOffset());
     doc["pressureScaling"] = String(settings.getPressureScaling());
@@ -698,10 +795,10 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
     doc["steamPumpPercentage"] = settings.getSteamPumpPercentage();
     doc["steamPumpCutoff"] = settings.getSteamPumpCutoff();
     doc["themeMode"] = settings.getThemeMode();
-    doc["sunriseR"] = settings.getSunriseR();
-    doc["sunriseG"] = settings.getSunriseG();
-    doc["sunriseB"] = settings.getSunriseB();
-    doc["sunriseW"] = settings.getSunriseW();
+    doc["sunriseIdle"] = settings.getSunriseIdle();
+    doc["sunriseActive"] = settings.getSunriseActive();
+    doc["sunriseFinished"] = settings.getSunriseFinished();
+    doc["sunriseError"] = settings.getSunriseError();
     doc["sunriseExtBrightness"] = settings.getSunriseExtBrightness();
     doc["emptyTankDistance"] = settings.getEmptyTankDistance();
     doc["fullTankDistance"] = settings.getFullTankDistance();
@@ -709,6 +806,11 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
     // Add auto-wakeup settings to response
     doc["autowakeupEnabled"] = settings.isAutoWakeupEnabled();
     doc["buttonBehavior"] = implode(settings.getButtonBehaviorList(), ",");
+    doc["commutationGain"] = settings.getCommutationGain();
+    doc["convergenceGain"] = settings.getConvergenceGain();
+    doc["integralGain"] = settings.getIntegralGain();
+    doc["maxPumpPower"] = settings.getMaxPumpPower();
+    doc["savedScale"] = settings.getSavedScale();
 
     // Add schedule format with days
     std::vector<AutoWakeupSchedule> autowakeupSchedules = settings.getAutoWakeupSchedules();
@@ -846,10 +948,10 @@ void WebUIPlugin::updateOTAStatus(const String &version) {
     doc["latestVersion"] = ota->getCurrentVersion();
     doc["channel"] = settings.getOTAChannel();
     doc["updating"] = updating;
-    // SPIFFS usage metrics
+    // LittleFS usage metrics
     {
-        size_t total = SPIFFS.totalBytes();
-        size_t used = SPIFFS.usedBytes();
+        size_t total = LittleFS.totalBytes();
+        size_t used = LittleFS.usedBytes();
         size_t freeBytes = total > used ? (total - used) : 0;
         doc["spiffsTotal"] = static_cast<uint32_t>(total);
         doc["spiffsUsed"] = static_cast<uint32_t>(used);

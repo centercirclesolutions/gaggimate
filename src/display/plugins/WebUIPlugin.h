@@ -11,7 +11,7 @@
 #include <display/core/Plugin.h>
 #include <display/util/PsramAllocator.h>
 
-constexpr size_t UPDATE_CHECK_INTERVAL = 5 * 60 * 1000;
+constexpr size_t UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
 constexpr size_t CLEANUP_PERIOD = 5 * 1000;
 constexpr size_t STATUS_PERIOD = 500;
 constexpr size_t DNS_PERIOD = 50;
@@ -42,6 +42,9 @@ class WebUIPlugin : public Plugin {
     void handleFlushStart(uint32_t clientId, JsonDocument &request);
 
     // HTTP handlers
+    // Serves the web UI from the firmware-embedded, memory-mapped flash blob
+    // (catch-all for any path not claimed by an explicit route). [GM-106]
+    void serveWebAsset(AsyncWebServerRequest *request);
     void handleSettings(AsyncWebServerRequest *request) const;
     void handleBLEScaleList(AsyncWebServerRequest *request);
     void handleBLEScaleScan(AsyncWebServerRequest *request);

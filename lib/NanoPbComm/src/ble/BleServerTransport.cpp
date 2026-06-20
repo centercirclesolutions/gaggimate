@@ -62,6 +62,7 @@ void BleServerTransport::onConnect(NimBLEServer *server, NimBLEConnInfo &) {
 
 void BleServerTransport::onDisconnect(NimBLEServer *server, NimBLEConnInfo &, int) {
     _connected = false;
+    _connHandle = BLE_HS_CONN_HANDLE_NONE;
     ESP_LOGI(LOG_TAG, "Client disconnected");
     emitConnection(false);
     server->startAdvertising();

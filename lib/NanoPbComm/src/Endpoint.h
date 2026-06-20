@@ -76,6 +76,14 @@ class Endpoint {
 
     bool isConnected() const { return _transport.isConnected(); }
 
+    // Reliable-delivery round-trip latency (ms): time from transmitting a frame
+    // to receiving its ACK. Derived for free from the stop-and-wait reliability
+    // layer. latencyMs() is EWMA-smoothed; lastLatencyMs() is the most recent
+    // raw sample. hasLatency() is false until the first ACK of the current link.
+    uint32_t latencyMs() const { return _smoothedRttMs; }
+    uint32_t lastLatencyMs() const { return _lastRttMs; }
+    bool hasLatency() const { return _rttValid; }
+
   private:
     static constexpr size_t QUEUE_CAPACITY = 16;
     static constexpr size_t MAX_KEYS = 256; // >= which_content_max * MAX_DEVICES
@@ -100,6 +108,14 @@ class Endpoint {
     unsigned long _sentAt = 0;
     uint8_t _retries = 0;
     bool _inFlight = false;
+
+    // Round-trip latency from the reliability layer. Sampled only on frames
+    // ACKed without a retransmit (Karn's algorithm) so an ambiguous retransmit
+    // ACK can't corrupt the estimate. Written under _mutex on the transport
+    // thread; read lock-free (aligned 32-bit access is atomic on the ESP32).
+    uint32_t _lastRttMs = 0;
+    uint32_t _smoothedRttMs = 0;
+    bool _rttValid = false;
 
     uint32_t _nextId = 1; // next outbound frame id (0 is reserved for ACKs)
     uint32_t _lastRxId = 0;

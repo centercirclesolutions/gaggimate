@@ -113,15 +113,9 @@ void GitHubOTA::update(bool controller, bool display) {
             return;
         }
 
-        this->phase = PHASE_DISPLAY_FS;
-        this->_phase_callback(PHASE_DISPLAY_FS);
-        result = update_filesystem(_latest_url + _filesystem_name);
-
-        if (result != HTTP_UPDATE_OK) {
-            ESP_LOGI(TAG, "Filesystem Update failed: %s\n", Updater.getLastErrorString().c_str());
-            return;
-        }
-
+        // The web UI now ships inside the firmware app image (GM-106), so there is no separate filesystem image to
+        // flash. OTA stays a single, rollback-protected app image and the LittleFS partition (profiles + shot history)
+        // is left untouched across updates. The filesystem image is only used for fresh USB installs.
         ESP_LOGI(TAG, "Update successful. Restarting...\n");
         this->phase = PHASE_FINISHED;
         this->_phase_callback(PHASE_FINISHED);
