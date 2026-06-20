@@ -72,6 +72,14 @@ CONFIG_COMPILER_CXX_EXCEPTIONS=y
 # See components/esp_lcd/rgb/esp_lcd_panel_rgb.c — lcd_rgb_panel_try_restart_transmission().
 CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
 
+# --- RGB LCD: keep the refill ISR in IRAM ---
+# RESTART_IN_VSYNC above clears a desync on the next frame, but HW (2026-06-12)
+# showed it is not enough alone: the panel-refill ISR defaults to flash, so a
+# cache stall (NVS write, AsyncTCP, OTA TLS) delays the refill and the DMA loses
+# HSYNC -> visible jitter / ~10px shift. Keeping the ISR in IRAM removes that
+# flash dependency. NOTE: fills display IRAM to ~100%.
+CONFIG_LCD_RGB_ISR_IRAM_SAFE=y
+
 # --- NimBLE bond persistence ---
 # IDF Kconfig help: "Enable this flag to make bonding persistent across
 # device reboots." Arduino-prebuilt has it on; IDF default is n. Without
