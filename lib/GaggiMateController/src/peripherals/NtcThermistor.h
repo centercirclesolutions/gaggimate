@@ -31,7 +31,7 @@ class NtcThermistor : public TemperatureSensor {
   private:
     ADSAdc *_adc;
     uint8_t _channel;
-    xTaskHandle taskHandle;
+    TaskHandle_t taskHandle;
 
     int errorCount = 0;
     std::array<int, NTC_ERROR_WINDOW> resultBuffer{};
@@ -43,7 +43,7 @@ class NtcThermistor : public TemperatureSensor {
     temperature_error_callback_t error_callback;
 
     const char *LOG_TAG = "NtcThermocouple";
-    static void monitorTask(void *arg);
+    [[noreturn]] static void monitorTask(void *arg);
 };
 
 #endif // NTCTHERMOCOUPLE_H

@@ -27,7 +27,7 @@ class GearpumpAddon {
 
     const char *LOG_TAG = "GearpumpAddon";
     static void loopTask(void *arg);
-    xTaskHandle taskHandle;
+    TaskHandle_t taskHandle;
 };
 
 #endif // GEARPUMPADDON_H

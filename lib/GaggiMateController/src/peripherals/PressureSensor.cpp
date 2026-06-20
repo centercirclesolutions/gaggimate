@@ -1,6 +1,8 @@
 #include "PressureSensor.h"
 #include "Wire.h"
 
+static const char *LOG_TAG = "PressureSensor";
+
 PressureSensor::PressureSensor(ADSAdc *adc, float pressure_scale, float voltage_floor, float voltage_ceil, uint8_t channel)
     : _pressure_scale(pressure_scale), _adc(adc), _channel(channel),
       _filter(PRESSURE_KF_MEASUREMENT_NOISE, PRESSURE_KF_ESTIMATE_ERROR, PRESSURE_KF_PROCESS_NOISE) {

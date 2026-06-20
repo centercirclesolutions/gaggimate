@@ -28,10 +28,10 @@ class ADSAdc {
     int _value[4] = {0, 0, 0, 0};
     ADS1115 *ads = nullptr;
     ads_callback_t _callback;
-    xTaskHandle taskHandle;
+    TaskHandle_t taskHandle;
 
     const char *LOG_TAG = "ADSAdc";
-    static void loopTask(void *arg);
+    [[noreturn]] static void loopTask(void *arg);
 };
 
 #endif // ADS_ADC_H
