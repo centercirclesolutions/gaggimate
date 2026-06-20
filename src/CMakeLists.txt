@@ -8,6 +8,7 @@ else()
     FILE(GLOB_RECURSE app_sources
         ${CMAKE_SOURCE_DIR}/src/display/*.c
         ${CMAKE_SOURCE_DIR}/src/display/*.cpp
+        ${CMAKE_SOURCE_DIR}/src/display/*.S
     )
     # Headless envs opt out of driver/ui code via -DGAGGIMATE_HEADLESS_BUILD=1.
     if(DEFINED GAGGIMATE_HEADLESS_BUILD AND GAGGIMATE_HEADLESS_BUILD)
