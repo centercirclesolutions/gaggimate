@@ -37,6 +37,7 @@ class GitHubOTA {
   private:
     HTTPUpdate Updater;
 
+    HTTPUpdateResult update_filesystem(const String &url);
     HTTPUpdateResult update_firmware(const String &url);
 
     uint8_t phase = PHASE_IDLE;

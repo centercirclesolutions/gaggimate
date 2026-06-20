@@ -1,6 +1,8 @@
 #ifndef CONTROLLER_H
 #define CONTROLLER_H
 
+#include <vector>
+
 #include "GaggiMateClient.h"
 #include "PluginManager.h"
 #include "Settings.h"

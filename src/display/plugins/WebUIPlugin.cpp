@@ -315,7 +315,7 @@ void WebUIPlugin::setupServer() {
     server.on("/api/scales/scan", [this](AsyncWebServerRequest *request) { handleBLEScaleScan(request); });
     server.on("/api/scales/info", [this](AsyncWebServerRequest *request) { handleBLEScaleInfo(request); });
     server.on("/api/debug/heap", [this](AsyncWebServerRequest *request) { handleDebugHeap(request); });
-    FS *fs = &SPIFFS;
+    FS *fs = &LittleFS;
     if (controller->isSDCard()) {
         fs = &SD_MMC;
     }
