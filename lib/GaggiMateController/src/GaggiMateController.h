@@ -63,6 +63,7 @@ class GaggiMateController {
     String _version;
     unsigned long lastPingTime = 0;
     size_t errorState = ERROR_CODE_NONE;
+    float setpointBeforeTimeout = 0.0f;
 
     const char *LOG_TAG = "GaggiMateController";
 };

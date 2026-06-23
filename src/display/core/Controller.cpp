@@ -371,6 +371,8 @@ void Controller::onSystemInfo(const char *hardware, const char *version, uint32_
         setPressureScale();
         setPidSettings();
         setPumpModelCoeffs();
+        configResendUntil = millis() + CONFIG_RESEND_WINDOW_MS;
+        lastConfigResend = millis();
     }
 
     if (!loaded) {
@@ -619,6 +621,15 @@ void Controller::loopControl() {
         if (comms.isConnected() && !systemInfo.protocolMismatch && now - lastPing >= PING_INTERVAL) {
             comms.sendPing();
             lastPing = now;
+        }
+
+        // A config burst right after a reconnect can be lost in the unstable BLE window,
+        // and a spurious ACK then stops the reliable layer retrying. Re-send until it lands.
+        if (comms.isConnected() && now < configResendUntil && (now - lastConfigResend) >= CONFIG_RESEND_INTERVAL_MS) {
+            setPressureScale();
+            setPidSettings();
+            setPumpModelCoeffs();
+            lastConfigResend = now;
         }
 
         updateControl();

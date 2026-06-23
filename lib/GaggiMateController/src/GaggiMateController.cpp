@@ -282,12 +282,20 @@ void GaggiMateController::detectAddon() {
 void GaggiMateController::handlePing() {
     if (errorState == ERROR_CODE_TIMEOUT) {
         errorState = ERROR_CODE_NONE;
+        // Display sends only control deltas, so a target unchanged since the timeout is
+        // never re-sent -- restore it or the boiler stays cold. Pump/valve stay off.
+        this->heater->setSetpoint(setpointBeforeTimeout);
     }
     lastPingTime = millis();
     ESP_LOGV(LOG_TAG, "Ping received, system is alive");
 }
 
 void GaggiMateController::handlePingTimeout() {
+    // Capture the commanded setpoint before zeroing so handlePing() can restore it
+    // on recovery. Only on the first timeout -- a repeat must not clobber it with 0.
+    if (errorState != ERROR_CODE_TIMEOUT) {
+        setpointBeforeTimeout = this->heater->getSetpoint();
+    }
     // Turn off the heater and pump as a safety measure
     this->heater->setSetpoint(0);
     this->pump->setPower(0);
