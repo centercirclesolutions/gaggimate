@@ -54,7 +54,7 @@ class BrewProcess : public Process {
 
     // Reason the current phase is done, or PhaseExitReason::NONE if it should keep running.
     PhaseExitReason currentPhaseExitReason() {
-        if (millis() - currentPhaseStarted > BREW_SAFETY_DURATION_MS) {
+        if (millis() - currentPhaseStarted > (isUtility() ? UTILITY_SAFETY_DURATION_MS : BREW_SAFETY_DURATION_MS)) {
             return PhaseExitReason::SAFETY;
         }
         double volume = currentVolume;
